@@ -256,18 +256,20 @@ async def razorpay_webhook(
         )
     print(f"Razorpay webhook received: {request}")
     raw_body = await request.body()
-    print(f"Razorpay webhook body: {raw_body}")
+    body_str = raw_body.decode("utf-8")
+
+    print(f"Razorpay webhook body: {body_str}")
     razorpay_client = razorpay.Client(
         auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET)
     )
     try:
         razorpay_client.utility.verify_webhook_signature(
-            raw_body,
+            body_str,
             x_razorpay_signature,
             Config.RAZORPAY_WEBHOOK_SECRET
         )
     except Exception as exc:
-        print(f"Razorpay webhook received: {exc}")
+        print(f"Razorpay webhook ex: {exc}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid webhook signature",
