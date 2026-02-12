@@ -1,0 +1,240 @@
+from __future__ import annotations
+
+from decimal import Decimal
+import uuid
+
+import hmac
+import hashlib
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+import razorpay
+from sqlmodel import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.payments.models import PaymentTransaction
+from app.api.payments.schemas import (
+    PaymentInitiateRequest,
+    PaymentInitiateResponse,
+    PaymentVerifyRequest,
+    PaymentVerifyResponse,
+)
+from app.api.payments.models import PaymentWebhook
+from app.core.config import Config
+from app.db.main import get_session
+
+payments_router = APIRouter()
+
+
+def _generate_transaction_id() -> str:
+    return f"txn_{uuid.uuid4().hex[:21]}"
+
+
+def _amount_to_paise(amount: Decimal) -> int:
+    return int((amount * 100).to_integral_value())
+
+
+@payments_router.post(
+    "/initiate",
+    response_model=PaymentInitiateResponse,
+    response_model_by_alias=True,
+    status_code=status.HTTP_201_CREATED,
+)
+async def initiate_payment(
+    payload: PaymentInitiateRequest,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    session: AsyncSession = Depends(get_session),
+):
+    if not Config.RAZORPAY_KEY_ID or not Config.RAZORPAY_KEY_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Razorpay keys are not configured",
+        )
+
+    stmt = select(PaymentTransaction).where(
+        PaymentTransaction.idempotency_key == idempotency_key
+    )
+    existing_payment = (await session.execute(stmt)).scalars().first()
+    if existing_payment:
+        if not existing_payment.gateway_order_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Idempotent request exists without gateway order",
+            )
+        return PaymentInitiateResponse(
+            razorpayOrderId=existing_payment.gateway_order_id,
+            keyId=Config.RAZORPAY_KEY_ID,
+            amount=existing_payment.amount,
+            currency=existing_payment.currency,
+        )
+
+    client = razorpay.Client(
+        auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET)
+    )
+
+    try:
+        order = client.order.create(
+            {
+                "amount": _amount_to_paise(payload.amount),
+                "currency": payload.currency,
+                "receipt": str(payload.booking_id),
+                "payment_capture": 1,
+            }
+        )
+    except Exception as exc:  # pragma: no cover - depends on external API
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to create Razorpay order",
+        ) from exc
+
+    payment = PaymentTransaction(
+        transaction_id=_generate_transaction_id(),
+        booking_id=payload.booking_id,
+        booking_public_id=payload.booking_public_id,
+        user_id=payload.user_id,
+        amount=payload.amount,
+        currency=payload.currency,
+        payment_type=payload.payment_type,
+        installment_no=payload.installment_no,
+        installment_total=payload.installment_total,
+        gateway="RAZORPAY",
+        gateway_order_id=order.get("id"),
+        status="INITIATED",
+        idempotency_key=idempotency_key,
+    )
+
+    session.add(payment)
+    await session.commit()
+
+    return PaymentInitiateResponse(
+        razorpayOrderId=payment.gateway_order_id,
+        keyId=Config.RAZORPAY_KEY_ID,
+        amount=payment.amount,
+        currency=payment.currency,
+    )
+
+
+@payments_router.post(
+    "/verify",
+    response_model=PaymentVerifyResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def verify_payment(
+    payload: PaymentVerifyRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    if not Config.RAZORPAY_KEY_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Razorpay key secret is not configured",
+        )
+
+    message = f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}".encode()
+    generated = hmac.new(
+        key=Config.RAZORPAY_KEY_SECRET.encode(),
+        msg=message,
+        digestmod=hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(generated, payload.razorpay_signature):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid payment signature",
+        )
+
+    result = await session.execute(
+        select(PaymentTransaction).where(
+            PaymentTransaction.gateway_order_id == payload.razorpay_order_id
+        )
+    )
+    payment = result.scalars().first()
+    if not payment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Payment transaction not found",
+        )
+
+    payment.gateway_payment_id = payload.razorpay_payment_id
+    payment.status = "PENDING"
+    session.add(payment)
+    await session.commit()
+
+    return PaymentVerifyResponse(status="VERIFIED")
+
+
+@payments_router.post("/webhook", status_code=status.HTTP_200_OK)
+async def razorpay_webhook(
+    request: Request,
+    x_razorpay_signature: str = Header(..., alias="X-Razorpay-Signature"),
+    session: AsyncSession = Depends(get_session),
+):
+    if not Config.RAZORPAY_WEBHOOK_SECRET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Razorpay webhook secret is not configured",
+        )
+
+    raw_body = await request.body()
+    try:
+        razorpay.Utility.verify_webhook_signature(
+            raw_body.decode(), x_razorpay_signature, Config.RAZORPAY_WEBHOOK_SECRET
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid webhook signature",
+        ) from exc
+
+    payload = await request.json()
+    event_id = payload.get("event_id") or payload.get("id")
+    event_type = payload.get("event")
+
+    if not event_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Webhook event_id missing",
+        )
+
+    existing = await session.execute(
+        select(PaymentWebhook).where(PaymentWebhook.event_id == event_id)
+    )
+    if existing.scalars().first():
+        return {"status": "ok"}
+
+    webhook = PaymentWebhook(
+        gateway="RAZORPAY",
+        event_id=event_id,
+        event_type=event_type,
+        payload=payload,
+        processed=False,
+    )
+    session.add(webhook)
+
+    payment_payload = (
+        payload.get("payload", {})
+        .get("payment", {})
+        .get("entity", {})
+    )
+    order_id = payment_payload.get("order_id")
+    payment_id = payment_payload.get("id")
+
+    if order_id:
+        result = await session.execute(
+            select(PaymentTransaction).where(
+                PaymentTransaction.gateway_order_id == order_id
+            )
+        )
+        payment = result.scalars().first()
+        if payment:
+            if payment_id:
+                payment.gateway_payment_id = payment_id
+            if event_type == "payment.captured":
+                payment.status = "SUCCESS"
+            elif event_type == "payment.failed":
+                payment.status = "FAILED"
+            session.add(payment)
+
+    webhook.processed = True
+    session.add(webhook)
+    await session.commit()
+
+    return {"status": "ok"}

@@ -1,1 +1,1 @@
-# aurashi-travishta-payment-service
+# aurashi-travishta-catalog-service
