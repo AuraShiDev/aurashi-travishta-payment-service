@@ -130,7 +130,7 @@ def get_idempotency_key(request: Request) -> Optional[str]:
     return idempotency_key or None
 
 def get_razorpay_signature_key(request: Request) -> Optional[str]:
-    razorpay_signature = request.headers.get("Razorpay-Signature")
+    razorpay_signature = request.headers.get("x-razorpay-signature")
     if not razorpay_signature:
         return None
 
