@@ -38,6 +38,6 @@ def register_middleware(app: FastAPI):
 
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["localhost", "127.0.0.1","0.0.0.0", "account-app"],
+        allowed_hosts=["localhost", "127.0.0.1","0.0.0.0", "payment-service"],
     )
     app.add_middleware(GatewayAuthContextMiddleware)
