@@ -257,7 +257,8 @@ async def razorpay_webhook(
     print(f"Razorpay webhook received: {request}")
     raw_body = await request.body()
     body_str = raw_body.decode("utf-8")
-
+    print(f"Razorpay webhook sig: {x_razorpay_signature}")
+    print(f"Razorpay webhook secret: {Config.RAZORPAY_WEBHOOK_SECRET}")
     print(f"Razorpay webhook body: {body_str}")
     razorpay_client = razorpay.Client(
         auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET)
