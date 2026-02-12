@@ -11,6 +11,7 @@ import razorpay
 from sqlmodel import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.bookings.models import BookingPaymentSchedule
 from app.api.payments.models import PaymentTransaction
 from app.api.payments.schemas import (
     PaymentInitiateRequest,
@@ -22,6 +23,7 @@ from app.api.payments.models import PaymentWebhook
 from app.core.config import Config
 from app.core.request_context import get_idempotency_key, get_razorpay_signature_key, is_valid_user, _get_user_context
 from app.db.main import get_session
+from app.utils.booking_service import extract_booking_public_id, fetch_booking_details
 
 payments_router = APIRouter()
 
@@ -33,6 +35,28 @@ def _generate_transaction_id() -> str:
 def _amount_to_paise(amount: Decimal) -> int:
     return int((amount * 100).to_integral_value())
 
+async def get_installment(db, booking_id: str, installment_no: int):
+    stmt = select(BookingPaymentSchedule).where(
+        BookingPaymentSchedule.booking_id == booking_id,
+        BookingPaymentSchedule.installment_no == installment_no
+    )
+
+    result = await db.execute(stmt)
+    installment = result.scalar_one_or_none()
+
+    if not installment:
+        raise HTTPException(
+            status_code=404,
+            detail="Invalid installment number"
+        )
+
+    if installment.status == "PAID":
+        raise HTTPException(
+            status_code=409,
+            detail="Installment already paid"
+        )
+
+    return installment
 
 @payments_router.post(
     "/initiate",
@@ -70,6 +94,59 @@ async def initiate_payment(
             currency=existing_payment.currency,
         )
 
+    booking = await fetch_booking_details(
+        str(payload.booking_id),
+        user_context.user_id
+    )
+    booking_public_id = extract_booking_public_id(booking)
+    if not booking_public_id:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="bookingPublicId missing from booking service response",
+        )
+
+    booking_amount = booking.get("amount")
+    booking_currency = booking.get("currency")
+    if booking_amount is not None and Decimal(str(booking_amount)) != payload.amount:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Amount mismatch with booking",
+        )
+    if booking_currency is not None and str(booking_currency).upper() != payload.currency.upper():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Currency mismatch with booking",
+        )
+
+    if booking.get("payment_status") == "PAID":
+        raise HTTPException(400, "Already paid")
+    amount = payload.amount
+    total_payable_amount = Decimal(str(booking.get("total_payable_amount", "0")))
+    # 3️⃣ Determine amount
+    if payload.payment_type == "FULL":
+        total_payable_amount = Decimal(str(booking.get("total_payable_amount", "0")))
+        total_paid_amount = Decimal(str(booking.get("total_paid_amount", "0")))
+        amount = total_payable_amount - total_paid_amount
+        amount = amount.quantize(Decimal("0.01"))
+        if amount <= 0:
+            raise HTTPException(400, "No pending amount")
+        installment_no = None
+    elif payload.payment_type == "PART":
+
+        if payload.installment_no is None:
+            raise HTTPException(400, "Installment number required")
+
+        installment = await get_installment(
+            session,
+            booking.get("id"),
+            payload.installment_no
+        )
+
+        amount = installment.due_amount
+        installment_no = payload.installment_no
+    else:
+        raise HTTPException(400, "Invalid payment mode")
+
     client = razorpay.Client(
         auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET)
     )
@@ -77,7 +154,7 @@ async def initiate_payment(
     try:
         order = client.order.create(
             {
-                "amount": _amount_to_paise(payload.amount),
+                "amount": _amount_to_paise(amount),
                 "currency": payload.currency,
                 "receipt": str(payload.booking_id),
                 "payment_capture": 1,
@@ -92,13 +169,13 @@ async def initiate_payment(
     payment = PaymentTransaction(
         transaction_id=_generate_transaction_id(),
         booking_id=payload.booking_id,
-        booking_public_id=payload.booking_public_id,
+        booking_public_id=booking_public_id,
         user_id=user_context.user_id,
-        amount=payload.amount,
+        amount=amount,
         currency=payload.currency,
         payment_type=payload.payment_type,
-        installment_no=payload.installment_no,
-        installment_total=payload.installment_total,
+        installment_no=installment_no,
+        installment_total=2,
         gateway="RAZORPAY",
         gateway_order_id=order.get("id"),
         status="INITIATED",

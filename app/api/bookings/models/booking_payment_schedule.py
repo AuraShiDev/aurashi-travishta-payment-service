@@ -17,6 +17,7 @@ class BookingPaymentSchedule(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     booking_id: uuid.UUID = Field(nullable=False)
+    booking_public_id: str = Field(sa_column=Column(String(20), nullable=False))
 
     installment_no: int = Field(nullable=False)
     due_amount: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))

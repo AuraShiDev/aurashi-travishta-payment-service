@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: str | None = None
     RAZORPAY_KEY_SECRET: str | None = None
     RAZORPAY_WEBHOOK_SECRET: str | None = None
+    BOOKING_SERVICE_URL: str = "http://localhost:8083"
     REDIS_URL: str = "redis://localhost:6379/0"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     ANONYMOUS_TOKEN_EXPIRE_MINUTES: int = 60
