@@ -4,6 +4,8 @@ import httpx
 from fastapi import HTTPException, status
 
 from app.core.config import Config
+from app.core.middlewares import logger
+from app.utils.response import error_response, ErrorDetail
 
 
 def extract_booking_public_id(booking: dict) -> str | None:
@@ -17,21 +19,23 @@ def extract_booking_public_id(booking: dict) -> str | None:
 
 async def fetch_booking_details(
     booking_id: str,
-    userId: str
+    user_id: str
 ) -> dict:
     url = f"{Config.BOOKING_SERVICE_URL}/api/v1/bookings/{booking_id}"
     headers: dict[str, str] = {}
     headers["AuthStatus"] = "AUTHENTICATED"
-    headers["UserId"] = userId
+    headers["UserId"] = user_id
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(url, headers=headers)
     except httpx.HTTPError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Unable to reach booking service",
-        ) from exc
+        logger.error(f"Unexpected error booking service: {str(exc)}")
+        error_response(
+            message="An unexpected error occurred",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            errors=[ErrorDetail(code="SERVER_ERROR", message=str(exc))]
+        )
 
     if response.status_code == status.HTTP_404_NOT_FOUND:
         raise HTTPException(
