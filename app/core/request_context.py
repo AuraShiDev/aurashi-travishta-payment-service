@@ -121,3 +121,19 @@ def is_end_user(request: Request) -> None:
     if user_ctx.type != Roles.USER:
         raise AccessDenied(ErrorMessage.END_USER_ACCESS_REQUIRED)
 
+def get_idempotency_key(request: Request) -> Optional[str]:
+    idempotency_key = request.headers.get("Idempotency-Key")
+    if not idempotency_key:
+        return None
+
+    idempotency_key = idempotency_key.strip()
+    return idempotency_key or None
+
+def get_razorpay_signature_key(request: Request) -> Optional[str]:
+    razorpay_signature = request.headers.get("Razorpay-Signature")
+    if not razorpay_signature:
+        return None
+
+    razorpay_signature = razorpay_signature.strip()
+    return razorpay_signature or None
+

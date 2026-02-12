@@ -20,6 +20,7 @@ from app.api.payments.schemas import (
 )
 from app.api.payments.models import PaymentWebhook
 from app.core.config import Config
+from app.core.request_context import get_idempotency_key, get_razorpay_signature_key
 from app.db.main import get_session
 
 payments_router = APIRouter()
@@ -40,8 +41,8 @@ def _amount_to_paise(amount: Decimal) -> int:
     status_code=status.HTTP_201_CREATED,
 )
 async def initiate_payment(
+    request: Request,
     payload: PaymentInitiateRequest,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
     session: AsyncSession = Depends(get_session),
 ):
     if not Config.RAZORPAY_KEY_ID or not Config.RAZORPAY_KEY_SECRET:
@@ -49,7 +50,7 @@ async def initiate_payment(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Razorpay keys are not configured",
         )
-
+    idempotency_key = get_idempotency_key(request)
     stmt = select(PaymentTransaction).where(
         PaymentTransaction.idempotency_key == idempotency_key
     )
@@ -164,9 +165,9 @@ async def verify_payment(
 @payments_router.post("/webhook", status_code=status.HTTP_200_OK)
 async def razorpay_webhook(
     request: Request,
-    x_razorpay_signature: str = Header(..., alias="X-Razorpay-Signature"),
     session: AsyncSession = Depends(get_session),
 ):
+    x_razorpay_signature = get_razorpay_signature_key(request)
     if not Config.RAZORPAY_WEBHOOK_SECRET:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
