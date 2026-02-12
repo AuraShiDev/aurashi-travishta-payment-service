@@ -21,6 +21,7 @@ from app.api.payments.schemas import (
 )
 from app.api.payments.models import PaymentWebhook
 from app.core.config import Config
+from app.core.middlewares import logger
 from app.core.request_context import get_idempotency_key, get_razorpay_signature_key, is_valid_user, _get_user_context
 from app.db.main import get_session
 from app.utils.booking_service import extract_booking_public_id, fetch_booking_details
@@ -252,8 +253,9 @@ async def razorpay_webhook(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Razorpay webhook secret is not configured",
         )
-
+    print(f"Razorpay webhook received: {request}")
     raw_body = await request.body()
+    print(f"Razorpay webhook body: {raw_body}")
     try:
         razorpay.Utility.verify_webhook_signature(
             raw_body.decode(), x_razorpay_signature, Config.RAZORPAY_WEBHOOK_SECRET
