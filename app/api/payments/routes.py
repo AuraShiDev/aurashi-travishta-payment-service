@@ -20,7 +20,7 @@ from app.api.payments.schemas import (
 )
 from app.api.payments.models import PaymentWebhook
 from app.core.config import Config
-from app.core.request_context import get_idempotency_key, get_razorpay_signature_key
+from app.core.request_context import get_idempotency_key, get_razorpay_signature_key, is_valid_user, _get_user_context
 from app.db.main import get_session
 
 payments_router = APIRouter()
@@ -45,6 +45,8 @@ async def initiate_payment(
     payload: PaymentInitiateRequest,
     session: AsyncSession = Depends(get_session),
 ):
+    is_valid_user(request)
+    user_context = _get_user_context(request)
     if not Config.RAZORPAY_KEY_ID or not Config.RAZORPAY_KEY_SECRET:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -91,7 +93,7 @@ async def initiate_payment(
         transaction_id=_generate_transaction_id(),
         booking_id=payload.booking_id,
         booking_public_id=payload.booking_public_id,
-        user_id=payload.user_id,
+        user_id=user_context.user_id,
         amount=payload.amount,
         currency=payload.currency,
         payment_type=payload.payment_type,
