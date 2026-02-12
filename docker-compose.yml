@@ -3,6 +3,6 @@ services:
     build: .
     container_name: payment-service
     ports:
-      - "8085:8085"
+      - "8084:8084"
     env_file:
       - .env
