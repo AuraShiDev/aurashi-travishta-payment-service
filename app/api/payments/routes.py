@@ -257,9 +257,14 @@ async def razorpay_webhook(
     print(f"Razorpay webhook received: {request}")
     raw_body = await request.body()
     print(f"Razorpay webhook body: {raw_body}")
+    razorpay_client = razorpay.Client(
+        auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET)
+    )
     try:
-        razorpay.Utility.verify_webhook_signature(
-            raw_body, x_razorpay_signature, Config.RAZORPAY_WEBHOOK_SECRET
+        razorpay_client.utility.verify_webhook_signature(
+            raw_body,
+            x_razorpay_signature,
+            Config.RAZORPAY_WEBHOOK_SECRET
         )
     except Exception as exc:
         print(f"Razorpay webhook received: {exc}")
