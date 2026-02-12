@@ -275,10 +275,10 @@ async def razorpay_webhook(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid webhook signature",
         ) from exc
-    payload = json.loads(raw_body)
-    print(f"Razorpay webhook received: {payload}")
-    event_id = payload.get("id")  # Razorpay uses 'id'
-    event_type = payload.get("event")
+    raw_payload = json.loads(raw_body)
+    print(f"Razorpay webhook received: {raw_payload}")
+    event_id = raw_payload.get("payload").get("id")  # Razorpay uses 'id'
+    event_type = raw_payload.get("event")
 
     if not event_id:
         raise HTTPException(
@@ -296,13 +296,13 @@ async def razorpay_webhook(
         gateway="RAZORPAY",
         event_id=event_id,
         event_type=event_type,
-        payload=payload,
+        payload=raw_payload,
         processed=False,
     )
     session.add(webhook)
 
     payment_payload = (
-        payload.get("payload", {})
+        raw_payload.get("payload", {})
         .get("payment", {})
         .get("entity", {})
     )
