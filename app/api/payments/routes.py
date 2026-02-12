@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 import uuid
 
@@ -258,16 +259,17 @@ async def razorpay_webhook(
     print(f"Razorpay webhook body: {raw_body}")
     try:
         razorpay.Utility.verify_webhook_signature(
-            raw_body.decode(), x_razorpay_signature, Config.RAZORPAY_WEBHOOK_SECRET
+            raw_body, x_razorpay_signature, Config.RAZORPAY_WEBHOOK_SECRET
         )
     except Exception as exc:
+        print(f"Razorpay webhook received: {exc}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid webhook signature",
         ) from exc
-
-    payload = await request.json()
-    event_id = payload.get("event_id") or payload.get("id")
+    payload = json.loads(raw_body)
+    print(f"Razorpay webhook received: {payload}")
+    event_id = payload.get("id")  # Razorpay uses 'id'
     event_type = payload.get("event")
 
     if not event_id:
