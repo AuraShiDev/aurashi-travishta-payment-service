@@ -58,3 +58,7 @@ class BadRequest(GlobalException):
     status_code = 400
     error_code = "bad_request"
     message = "Bad request"
+class ExternalServiceError(GlobalException):
+    status_code = 502
+    error_code = "external_service_error"
+    message = "External service request failed"

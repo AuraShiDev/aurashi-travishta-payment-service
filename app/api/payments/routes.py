@@ -7,6 +7,7 @@ import uuid
 import hmac
 import hashlib
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 import razorpay
 from sqlmodel import select
@@ -22,10 +23,11 @@ from app.api.payments.schemas import (
 )
 from app.api.payments.models import PaymentWebhook
 from app.core.config import Config
+from app.core.exceptions import ExternalServiceError
 from app.core.middlewares import logger
 from app.core.request_context import get_idempotency_key, get_razorpay_signature_key, is_valid_user, _get_user_context
 from app.db.main import get_session
-from app.utils.booking_service import extract_booking_public_id, fetch_booking_details
+from app.utils.booking_service import extract_booking_public_id, fetch_booking_details, update_booking_status_service
 
 payments_router = APIRouter()
 
@@ -275,9 +277,14 @@ async def razorpay_webhook(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid webhook signature",
         ) from exc
-    raw_payload = json.loads(raw_body)
+    raw_payload = json.loads(body_str)
     print(f"Razorpay webhook received: {raw_payload}")
-    event_id = raw_payload.get("payload").get("id")  # Razorpay uses 'id'
+    payment_payload = (
+        raw_payload.get("payload", {})
+        .get("payment", {})
+        .get("entity", {})
+    )
+    event_id = payment_payload.get("id")  # Razorpay uses 'id'
     event_type = raw_payload.get("event")
 
     if not event_id:
@@ -301,32 +308,139 @@ async def razorpay_webhook(
     )
     session.add(webhook)
 
-    payment_payload = (
-        raw_payload.get("payload", {})
-        .get("payment", {})
-        .get("entity", {})
-    )
     order_id = payment_payload.get("order_id")
     payment_id = payment_payload.get("id")
+    amount = Decimal(payment_payload.get("amount")) / Decimal(100)
 
     if order_id:
-        result = await session.execute(
-            select(PaymentTransaction).where(
-                PaymentTransaction.gateway_order_id == order_id
-            )
-        )
-        payment = result.scalars().first()
-        if payment:
-            if payment_id:
-                payment.gateway_payment_id = payment_id
-            if event_type == "payment.captured":
-                payment.status = "SUCCESS"
-            elif event_type == "payment.failed":
-                payment.status = "FAILED"
-            session.add(payment)
+        # result = await session.execute(
+        #     select(PaymentTransaction).where(
+        #         PaymentTransaction.gateway_order_id == order_id
+        #     ).with_for_update()
+        # )
+        # payment = result.scalars().first()
+        # if payment_id:
+        #     payment.gateway_payment_id = payment_id
+        if event_type == "payment.captured":
+            await handle_payment_success(order_id, payment_id, amount, session)
+            # payment.status = "SUCCESS"
+        elif event_type == "payment.failed":
+            await handle_payment_failed(payment_payload, session)
+            # payment.status = "FAILED"
+            # session.add(payment)
 
     webhook.processed = True
     session.add(webhook)
     await session.commit()
 
     return {"status": "ok"}
+
+
+async def handle_payment_success(order_id : str,
+                                 payment_id : str,
+                                 amount: Decimal,
+                                 session: AsyncSession):
+
+    # 🔐 Row-level lock to prevent race condition
+    stmt = (
+        select(PaymentTransaction)
+        .where(PaymentTransaction.gateway_order_id == order_id)
+        .with_for_update()
+    )
+
+    result = await session.execute(stmt)
+    txn = result.scalar_one_or_none()
+
+    if not txn:
+        return
+
+    # Idempotency: already processed
+    if txn.status == "SUCCESS":
+        return
+
+    txn.status = "SUCCESS"
+    txn.gateway_payment_id = payment_id
+
+    # 🔹 Update installment schedule
+    if txn.installment_no:
+        sched_stmt = (
+            select(BookingPaymentSchedule)
+            .where(
+                BookingPaymentSchedule.booking_id == txn.booking_id,
+                BookingPaymentSchedule.installment_no == txn.installment_no
+            )
+            .with_for_update()
+        )
+
+        sched_result = await session.execute(sched_stmt)
+        schedule = sched_result.scalar_one_or_none()
+
+        if schedule and schedule.status != "PAID":
+            schedule.status = "PAID"
+            session.add(schedule)
+
+    session.add(txn)
+    await session.commit()
+
+    try :
+        # 🔹 Now update Booking Service
+        await update_booking_status_service(
+            booking_id=txn.booking_id,
+            amount_paid=amount,
+            booking_status="SUCCESS",
+            user_id=txn.user_id,
+        )
+    except httpx.HTTPError as exc:
+        await session.rollback()
+        raise ExternalServiceError(f"Payment schedule creation failed: {str(exc)}")
+
+
+async def handle_payment_failed(payload: dict, session: AsyncSession):
+
+    payment_entity = (
+        payload.get("payload", {})
+        .get("payment", {})
+        .get("entity", {})
+    )
+
+    order_id = payment_entity.get("order_id")
+    payment_id = payment_entity.get("id")
+    error_code = payment_entity.get("error_code")
+    error_description = payment_entity.get("error_description")
+
+    if not order_id:
+        return
+
+    # 🔐 Row-level lock to avoid race conditions
+    stmt = (
+        select(PaymentTransaction)
+        .where(PaymentTransaction.gateway_order_id == order_id)
+        .with_for_update()
+    )
+
+    result = await session.execute(stmt)
+    txn = result.scalar_one_or_none()
+
+    if not txn:
+        return
+
+    # 🛑 Idempotency: If already SUCCESS, do nothing
+    if txn.status == "SUCCESS":
+        return
+
+    # 🛑 If already FAILED, do nothing
+    if txn.status == "FAILED":
+        return
+
+    # 🔹 Update transaction
+    txn.status = "FAILED"
+    txn.gateway_payment_id = payment_id
+    txn.failure_code = error_code
+    txn.failure_reason = error_description
+
+    session.add(txn)
+
+    # 🔹 Installment stays PENDING (important)
+    # Optional: you can track failure count if needed
+
+    await session.commit()
