@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from decimal import Decimal
+from uuid import UUID
+
 import httpx
 from fastapi import HTTPException, status
 
@@ -63,3 +66,23 @@ async def fetch_booking_details(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="Unexpected booking response format",
     )
+
+async def update_booking_status_service(booking_id: UUID,
+                                        amount_paid: Decimal,
+                                        booking_status: str,
+                                        user_id: UUID) -> None:
+
+    payload = {
+        "status": booking_status,
+        "amount_paid": float(amount_paid),
+    }
+    url = f"{Config.BOOKING_SERVICE_URL.rstrip('/api/v1/bookings/')}{booking_id}/status"
+    headers = {
+        "AuthStatus": "AUTHENTICATED",
+        "UserId": str(user_id),
+    }
+
+    timeout = httpx.Timeout(10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.patch(url, json=payload, headers=headers)
+        response.raise_for_status()
