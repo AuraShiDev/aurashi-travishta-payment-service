@@ -286,7 +286,8 @@ async def razorpay_webhook(
     )
     event_id = payment_payload.get("id")  # Razorpay uses 'id'
     event_type = raw_payload.get("event")
-
+    print(f"Razorpay webhook event_id: {event_id}")
+    print(f"Razorpay webhook order_id: {event_type}")
     if not event_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -311,6 +312,7 @@ async def razorpay_webhook(
     order_id = payment_payload.get("order_id")
     payment_id = payment_payload.get("id")
     amount = Decimal(payment_payload.get("amount")) / Decimal(100)
+    print(f"Razorpay webhook order_id: {order_id}")
 
     if order_id:
         # result = await session.execute(
@@ -353,7 +355,7 @@ async def handle_payment_success(order_id : str,
 
     if not txn:
         return
-
+    print(f"Processing payment success for order_id={order_id}, payment_id={payment_id}, amount={amount}, txn_id={txn.transaction_id}")
     # Idempotency: already processed
     if txn.status == "SUCCESS":
         return

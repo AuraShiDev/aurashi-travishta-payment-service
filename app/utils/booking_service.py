@@ -76,7 +76,8 @@ async def update_booking_status_service(booking_id: UUID,
         "status": booking_status,
         "amount_paid": float(amount_paid),
     }
-    url = f"{Config.BOOKING_SERVICE_URL.rstrip('/api/v1/bookings/')}{booking_id}/status"
+    url = f"{Config.BOOKING_SERVICE_URL}/api/v1/bookings/{booking_id}/status"
+    # url = f"{Config.BOOKING_SERVICE_URL.rstrip('/api/v1/bookings/')}{booking_id}/status"
     headers = {
         "AuthStatus": "AUTHENTICATED",
         "UserId": str(user_id),
