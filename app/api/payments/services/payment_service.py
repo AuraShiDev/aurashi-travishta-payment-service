@@ -249,7 +249,7 @@ async def verify_payment_service(
             detail="Payment transaction not found",
         )
     payment.gateway_payment_id = payload.razorpay_payment_id
-    payment.status = "PENDING"
+    # payment.status = "PENDING"
     session.add(payment)
     await session.commit()
     return PaymentVerifyResponse(status="VERIFIED")
