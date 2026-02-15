@@ -33,7 +33,7 @@ async def process_webhook_service(request: Request, session: AsyncSession) -> di
         )
 
     raw_body = await request.body()
-    body_str = '{"entity":"event","account_id":"acc_SCTITXeAfMAg1r","event":"payment.captured","contains":["payment"],"payload":{"payment":{"entity":{"id":"pay_SFKpcLik8Y6M7ss8","entity":"payment","amount":498800,"currency":"INR","status":"captured","order_id":"order_SGU7BAe7s2s8uI","invoice_id":null,"international":false,"method":"card","amount_refunded":0,"refund_status":null,"captured":true,"description":"Booking for Innova","card_id":"card_SFKpcaaL9fDBdr","card":{"id":"card_SFKpcaaL9fDBdr","entity":"card","name":"","last4":"1007","network":"Visa","type":"debit","issuer":"DCBL","international":false,"emi":false,"sub_type":"consumer","token_iin":"410028000"},"bank":null,"wallet":null,"vpa":null,"email":"asd@gmail.cm","contact":"+919999999999","notes":[],"fee":11772,"tax":1796,"error_code":null,"error_description":null,"error_source":null,"error_step":null,"error_reason":null,"acquirer_data":{"auth_code":"689791"},"created_at":1770921290,"reward":null,"base_amount":498800}}},"created_at":1770921294}'
+    body_str = raw_body.decode("utf-8")
     razorpay_client = razorpay.Client(
         auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET)
     )
