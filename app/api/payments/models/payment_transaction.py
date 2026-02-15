@@ -43,6 +43,12 @@ class PaymentTransaction(SQLModel, table=True):
     gateway_payment_id: str | None = Field(default=None, sa_column=Column(String(100)))
 
     status: str = Field(sa_column=Column(String(20), nullable=False))
+    refund_amount: Decimal | None = Field(
+        default=None, sa_column=Column(Numeric(12, 2))
+    )
+    refund_status: str = Field(
+        default="NONE", sa_column=Column(String(20), nullable=False, server_default="NONE")
+    )
     idempotency_key: str = Field(
         sa_column=Column("idempotency_key", String(100), unique=True, nullable=False)
     )

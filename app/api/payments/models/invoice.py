@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 import uuid
 
-from sqlalchemy import Column, DateTime, Numeric, String
+from sqlalchemy import Column, DateTime, Numeric, String, Text
 from sqlalchemy.sql import func
 from sqlmodel import Field, SQLModel
 
@@ -28,6 +28,8 @@ class Invoice(SQLModel, table=True):
     )
 
     amount: Decimal = Field(sa_column=Column(Numeric(12, 2), nullable=False))
+    tax_amount: Decimal | None = Field(default=None, sa_column=Column(Numeric(12, 2)))
+    pdf_url: str | None = Field(default=None, sa_column=Column(Text))
     currency: str | None = Field(
         default="INR", sa_column=Column(String(10), server_default="INR")
     )

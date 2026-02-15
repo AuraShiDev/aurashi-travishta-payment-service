@@ -52,3 +52,18 @@ class PaymentVerifyRequest(BaseModel):
 
 class PaymentVerifyResponse(BaseModel):
     status: str
+
+
+class RefundRequest(BaseModel):
+    booking_public_id: Annotated[str, Field(alias="bookingPublicId")]
+    amount: Decimal
+    reason: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class RefundResponse(BaseModel):
+    status: str
+    refunded_amount: Annotated[Decimal, Field(alias="refundedAmount")]
+
+    model_config = {"populate_by_name": True}

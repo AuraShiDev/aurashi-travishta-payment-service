@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_SECRET: str | None = None
     RAZORPAY_WEBHOOK_SECRET: str | None = None
     BOOKING_SERVICE_URL: str = "http://localhost:8083"
+    AWS_ACCESS_KEY: str | None = None
+    AWS_SECRET_KEY: str | None = None
+    AWS_REGION: str | None = None
+    S3_BUCKET: str | None = None
+    PDF_LAMBDA_FUNCTION_NAME: str = "invoice-pdf-generator"
+    INVOICE_PDF_ENABLED: bool = True
+    BOOKING_PAYMENT_QUEUE_URL: str | None = None
     REDIS_URL: str = "redis://localhost:6379/0"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     ANONYMOUS_TOKEN_EXPIRE_MINUTES: int = 60

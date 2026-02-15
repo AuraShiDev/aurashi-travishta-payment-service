@@ -17,3 +17,5 @@ requests
 passlib
 bcrypt
 razorpay
+jinja2
+boto3
