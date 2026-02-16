@@ -55,6 +55,8 @@ async def process_webhook_service(request: Request, session: AsyncSession) -> di
     )
     event_id = raw_payload.get("id") or payment_payload.get("id")
     event_type = raw_payload.get("event")
+    print(event_id, "webhook event_id")
+    print(event_type, "webhook event_type")
     if not event_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -62,7 +64,7 @@ async def process_webhook_service(request: Request, session: AsyncSession) -> di
         )
 
     existing = await session.execute(
-        select(PaymentWebhook).where(PaymentWebhook.event_id == event_id)
+        select(PaymentWebhook).where(PaymentWebhook.event_id == event_id and PaymentWebhook.event_type == event_type)
     )
     webhook = existing.scalars().first()
     if webhook and webhook.processed:
