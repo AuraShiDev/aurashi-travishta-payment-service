@@ -187,6 +187,8 @@ async def handle_payment_failed(payload: dict, session: AsyncSession) -> None:
 async def handle_refund_processed(payload: dict, session: AsyncSession) -> None:
     refund_entity = payload.get("payload", {}).get("refund", {}).get("entity", {})
     refund_id = refund_entity.get("id")
+    print(payload, "refund payload")
+    print(refund_id, "refund id")
     if not refund_id:
         return
 
@@ -215,15 +217,15 @@ async def handle_refund_processed(payload: dict, session: AsyncSession) -> None:
             txn.refund_status = "PROCESSED"
             session.add(txn)
 
-    if transitioned:
-        try:
-            await generate_credit_note_for_refund(refund_record, session)
-        except Exception as exc:
-            logger.error(
-                f"Credit note generation failed for refund={refund_record.id}: {exc}"
-            )
+    # if transitioned:
+    #     try:
+    #         await generate_credit_note_for_refund(refund_record, session)
+    #     except Exception as exc:
+    #         logger.error(
+    #             f"Credit note generation failed for refund={refund_record.id}: {exc}"
+    #         )
     await session.commit()
-
+    print("refund successfully processed, publishing event")
     await publish_refund_processed_event(
         {
             "event_type": "REFUND_PROCESSED",
