@@ -64,7 +64,8 @@ async def process_webhook_service(request: Request, session: AsyncSession) -> di
         )
 
     existing = await session.execute(
-        select(PaymentWebhook).where(PaymentWebhook.event_id == event_id and PaymentWebhook.event_type == event_type)
+        select(PaymentWebhook).where(PaymentWebhook.event_id == event_id,
+                                     PaymentWebhook.event_type == event_type)
     )
     webhook = existing.scalars().first()
     if webhook and webhook.processed:
