@@ -229,7 +229,7 @@ async def handle_refund_processed(payload: dict, session: AsyncSession) -> None:
         print("refund successfully processed, publishing event")
         await publish_refund_processed_event(
             {
-                "event_type": "REFUND_PROCESSED",
+                "event_type": "REFUND_SUCCESS",
                 "booking_public_id": txn.booking_public_id if txn else None,
                 "payment_transaction_id": txn.transaction_id if txn else None,
                 "refund_id": refund_record.refund_id,
