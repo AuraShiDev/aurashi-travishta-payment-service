@@ -18,7 +18,7 @@ class PaymentWebhook(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True, nullable=False)
     gateway: str | None = Field(default=None, sa_column=Column(String(30)))
     event_id: str = Field(
-        sa_column=Column("event_id", String(100), unique=True, nullable=False)
+        sa_column=Column("event_id", String(100), nullable=False)
     )
     event_type: str | None = Field(default=None, sa_column=Column(String(50)))
     payload: dict | None = Field(default=None, sa_column=Column(JSONB))
