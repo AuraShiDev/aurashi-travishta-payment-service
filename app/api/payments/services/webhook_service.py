@@ -185,56 +185,59 @@ async def handle_payment_failed(payload: dict, session: AsyncSession) -> None:
 
 
 async def handle_refund_processed(payload: dict, session: AsyncSession) -> None:
-    refund_entity = payload.get("payload", {}).get("refund", {}).get("entity", {})
-    refund_id = refund_entity.get("id")
-    print(payload, "refund payload")
-    print(refund_id, "refund id")
-    if not refund_id:
-        return
+    try :
+        refund_entity = payload.get("payload", {}).get("refund", {}).get("entity", {})
+        refund_id = refund_entity.get("id")
+        print(payload, "refund payload")
+        print(refund_id, "refund id")
+        if not refund_id:
+            return
 
-    stmt = (
-        select(RefundTransaction)
-        .where(RefundTransaction.refund_id == refund_id)
-        .with_for_update()
-    )
-    refund_record = (await session.execute(stmt)).scalar_one_or_none()
-    if not refund_record:
-        return
+        stmt = (
+            select(RefundTransaction)
+            .where(RefundTransaction.refund_id == refund_id)
+            .with_for_update()
+        )
+        refund_record = (await session.execute(stmt)).scalar_one_or_none()
+        if not refund_record:
+            return
 
-    transitioned = refund_record.status != "PROCESSED"
-    if transitioned:
-        refund_record.status = "PROCESSED"
-        session.add(refund_record)
-
-    txn_stmt = (
-        select(PaymentTransaction)
-        .where(PaymentTransaction.id == refund_record.payment_transaction_id)
-        .with_for_update()
-    )
-    txn = (await session.execute(txn_stmt)).scalar_one_or_none()
-    if txn:
+        transitioned = refund_record.status != "PROCESSED"
         if transitioned:
-            txn.refund_status = "PROCESSED"
-            session.add(txn)
+            refund_record.status = "PROCESSED"
+            session.add(refund_record)
 
-    # if transitioned:
-    #     try:
-    #         await generate_credit_note_for_refund(refund_record, session)
-    #     except Exception as exc:
-    #         logger.error(
-    #             f"Credit note generation failed for refund={refund_record.id}: {exc}"
-    #         )
-    await session.commit()
-    print("refund successfully processed, publishing event")
-    await publish_refund_processed_event(
-        {
-            "event_type": "REFUND_PROCESSED",
-            "booking_public_id": txn.booking_public_id if txn else None,
-            "payment_transaction_id": txn.transaction_id if txn else None,
-            "refund_id": refund_record.refund_id,
-            "amount": float(refund_record.amount),
-        }
-    )
+        txn_stmt = (
+            select(PaymentTransaction)
+            .where(PaymentTransaction.id == refund_record.payment_transaction_id)
+            .with_for_update()
+        )
+        txn = (await session.execute(txn_stmt)).scalar_one_or_none()
+        if txn:
+            if transitioned:
+                txn.refund_status = "PROCESSED"
+                session.add(txn)
+
+        # if transitioned:
+        #     try:
+        #         await generate_credit_note_for_refund(refund_record, session)
+        #     except Exception as exc:
+        #         logger.error(
+        #             f"Credit note generation failed for refund={refund_record.id}: {exc}"
+        #         )
+        await session.commit()
+        print("refund successfully processed, publishing event")
+        await publish_refund_processed_event(
+            {
+                "event_type": "REFUND_PROCESSED",
+                "booking_public_id": txn.booking_public_id if txn else None,
+                "payment_transaction_id": txn.transaction_id if txn else None,
+                "refund_id": refund_record.refund_id,
+                "amount": float(refund_record.amount),
+            }
+        )
+    except Exception as exc:
+        print(exc, "Error processing refund processed webhook")
 
 
 async def handle_refund_failed(payload: dict, session: AsyncSession) -> None:
