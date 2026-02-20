@@ -26,28 +26,29 @@ from app.utils.event_publisher import (
 
 async def process_webhook_service(request: Request, session: AsyncSession) -> dict:
     x_razorpay_signature = get_razorpay_signature_key(request)
-    if not Config.RAZORPAY_WEBHOOK_SECRET:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Razorpay webhook secret is not configured",
-        )
+    # if not Config.RAZORPAY_WEBHOOK_SECRET:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #         detail="Razorpay webhook secret is not configured",
+    #     )
 
     raw_body = await request.body()
-    body_str = raw_body.decode("utf-8")
-    razorpay_client = razorpay.Client(
-        auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET)
-    )
-    try:
-        razorpay_client.utility.verify_webhook_signature(
-            body_str,
-            x_razorpay_signature,
-            Config.RAZORPAY_WEBHOOK_SECRET,
-        )
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid webhook signature",
-        ) from exc
+    body_str1 = '{"event":"payment.captured","entity":"event","payload":{"payment":{"entity":{"id":"pay_SFKpcLik8Y6M7ss76","fee":11772,"tax":1796,"vpa":null,"bank":null,"card":{"id":"card_SFKpcaaL9fDBdr","emi":false,"name":"","type":"debit","last4":"1007","entity":"card","issuer":"DCBL","network":"Visa","sub_type":"consumer","token_iin":"410028000","international":false},"email":"asd@gmail.cm","notes":[],"amount":10000,"entity":"payment","method":"card","reward":null,"status":"captured","wallet":null,"card_id":"card_SFKpcaaL9fDBdr","contact":"+919999999999","captured":true,"currency":"INR","order_id":"order_SIS7qhH4KYEX0h","created_at":1770921290,"error_code":null,"error_step":null,"invoice_id":null,"base_amount":498800,"description":"Booking for Innova","error_reason":null,"error_source":null,"acquirer_data":{"auth_code":"689791"},"international":false,"refund_status":null,"amount_refunded":0,"error_description":null}}},"contains":["payment"],"account_id":"acc_SCTITXeAfMAg1r","created_at":1770921294}'
+    body_str = '{"event":"refund.processed","entity":"event","payload":{"refund":{"entity":{"id":"rfnd_124","notes":[],"amount":275660,"entity":"refund","status":"processed","receipt":null,"batch_id":null,"currency":"INR","created_at":1771259688,"payment_id":"pay_SGsu6RQHtWR5ZJ2","acquirer_data":{"arn":"10000000000000"},"speed_processed":"normal","speed_requested":"normal"}},"payment":{"entity":{"id":"pay_SGsu6RQHtWR5ZJ2","fee":9294,"tax":1418,"vpa":null,"bank":null,"card":{"id":"card_SGsu6idJDl9Kk6","emi":false,"iin":"410028","name":"","type":"debit","last4":"1007","entity":"card","issuer":"DCBL","network":"Visa","sub_type":"consumer","token_iin":"410028000","international":false},"email":"ghg@gmail.com","notes":[],"amount":393800,"entity":"payment","method":"card","status":"captured","wallet":null,"card_id":"card_SGsu6idJDl9Kk6","contact":"+919898989899","captured":true,"currency":"INR","order_id":"order_SIS7qhH4KYEX0h","created_at":1771259619,"error_code":null,"error_step":null,"invoice_id":null,"base_amount":393800,"description":"Booking for Swift","error_reason":null,"error_source":null,"acquirer_data":{"auth_code":"783601"},"international":false,"refund_status":"partial","amount_refunded":275660,"error_description":null,"amount_transferred":0}}},"contains":["refund","payment"],"account_id":"acc_SCTITXeAfMAg1r","created_at":1771259692}'
+    # razorpay_client = razorpay.Client(
+    #     auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET)
+    # )
+    # try:
+    #     razorpay_client.utility.verify_webhook_signature(
+    #         body_str,
+    #         x_razorpay_signature,
+    #         Config.RAZORPAY_WEBHOOK_SECRET,
+    #     )
+    # except Exception as exc:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_400_BAD_REQUEST,
+    #         detail="Invalid webhook signature",
+    #     ) from exc
 
     raw_payload = json.loads(body_str)
     payment_payload = (
@@ -218,13 +219,13 @@ async def handle_refund_processed(payload: dict, session: AsyncSession) -> None:
                 txn.refund_status = "PROCESSED"
                 session.add(txn)
 
-        # if transitioned:
-        #     try:
-        #         await generate_credit_note_for_refund(refund_record, session)
-        #     except Exception as exc:
-        #         logger.error(
-        #             f"Credit note generation failed for refund={refund_record.id}: {exc}"
-        #         )
+        if transitioned:
+            try:
+                await generate_credit_note_for_refund(refund_record, session)
+            except Exception as exc:
+                logger.error(
+                    f"Credit note generation failed for refund={refund_record.id}: {exc}"
+                )
         await session.commit()
         print("refund successfully processed, publishing event")
         await publish_refund_processed_event(

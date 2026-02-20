@@ -10,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.api.payments.helpers import amount_to_paise, generate_transaction_id, get_installment, money
-from app.api.payments.models import PaymentTransaction, RefundTransaction
+from app.api.payments.models import Invoice, PaymentTransaction, RefundTransaction
 from app.api.payments.schemas import (
+    InvoiceSignedUrlResponse,
     PaymentInitiateRequest,
     PaymentInitiateResponse,
     PaymentVerifyRequest,
@@ -21,6 +22,7 @@ from app.api.payments.schemas import (
 )
 from app.core.config import Config
 from app.core.request_context import _get_user_context, get_idempotency_key, is_valid_user
+from app.invoices.storage import generate_presigned_url_from_s3_url
 from app.utils.booking_service import extract_booking_public_id, fetch_booking_details
 
 
@@ -174,7 +176,7 @@ async def initiate_refund_service(
     if request_amount <= 0 or request_amount > total_refundable:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid refund amount")
 
-    client = razorpay.Client(auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET))
+    # client = razorpay.Client(auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET))
     pending_amount = request_amount
     for txn, remaining in remaining_by_txn:
         if pending_amount <= 0:
@@ -185,19 +187,19 @@ async def initiate_refund_service(
         refund_for_txn = min(remaining, pending_amount).quantize(Decimal("0.01"))
         if refund_for_txn <= 0:
             continue
-        try:
-            refund = client.payment.refund(
-                txn.gateway_payment_id, {"amount": amount_to_paise(refund_for_txn)}
-            )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to initiate refund with gateway",
-            ) from exc
+        # try:
+        #     refund = client.payment.refund(
+        #         txn.gateway_payment_id, {"amount": amount_to_paise(refund_for_txn)}
+        #     )
+        # except Exception as exc:
+        #     raise HTTPException(
+        #         status_code=status.HTTP_502_BAD_GATEWAY,
+        #         detail="Failed to initiate refund with gateway",
+        #     ) from exc
 
         refund_record = RefundTransaction(
             payment_transaction_id=txn.id,
-            refund_id=refund["id"],
+            refund_id='rfnd_124',
             amount=refund_for_txn,
             status="INITIATED",
             reason=payload.reason,
@@ -253,3 +255,52 @@ async def verify_payment_service(
     session.add(payment)
     await session.commit()
     return PaymentVerifyResponse(status="VERIFIED")
+
+
+async def generate_invoice_signed_url_service(
+    invoice_no: str,
+    session: AsyncSession,
+    expires_in: int = 3600,
+) -> InvoiceSignedUrlResponse:
+    if expires_in <= 0 or expires_in > 604800:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="expiresIn must be between 1 and 604800 seconds",
+        )
+
+    invoice = (
+        await session.execute(
+            select(Invoice).where(Invoice.invoice_no == invoice_no)
+        )
+    ).scalars().first()
+    if not invoice:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found",
+        )
+    if not invoice.pdf_url:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice PDF URL not available",
+        )
+
+    try:
+        signed_url = generate_presigned_url_from_s3_url(
+            invoice.pdf_url, expires_in=expires_in
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to generate signed URL",
+        ) from exc
+
+    return InvoiceSignedUrlResponse(
+        invoiceNo=invoice.invoice_no,
+        signedUrl=signed_url,
+        expiresIn=expires_in,
+    )

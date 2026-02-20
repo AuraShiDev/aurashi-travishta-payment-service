@@ -22,17 +22,22 @@ def _send_event(event_data: dict, deduplication_id: str | None = None) -> None:
     if not Config.BOOKING_PAYMENT_QUEUE_URL:
         raise ValueError("BOOKING_PAYMENT_QUEUE_URL is not configured")
 
-    sqs = _build_sqs_client()
-    message = {
-        "QueueUrl": Config.BOOKING_PAYMENT_QUEUE_URL,
-        "MessageBody": json.dumps(event_data),
-    }
-    if Config.BOOKING_PAYMENT_QUEUE_URL.endswith(".fifo"):
-        message["MessageGroupId"] = "booking-events"
-        message["MessageDeduplicationId"] = str(
-            deduplication_id or event_data.get("payment_transaction_id")
-        )
-    sqs.send_message(**message)
+    try:
+        sqs = _build_sqs_client()
+        message = {
+            "QueueUrl": Config.BOOKING_PAYMENT_QUEUE_URL,
+            "MessageBody": json.dumps(event_data),
+        }
+        print(f"[event_publisher] send_message")
+        if Config.BOOKING_PAYMENT_QUEUE_URL.endswith(".fifo"):
+            message["MessageGroupId"] = "booking-events"
+            message["MessageDeduplicationId"] = str(
+                deduplication_id or event_data.get("payment_transaction_id")
+            )
+        sqs.send_message(**message)
+    except Exception as exc:
+        print(f"[event_publisher] send_message failed: {exc}, event_data={event_data}")
+        raise
 
 
 async def publish_payment_success_event(event_data: dict) -> None:

@@ -67,3 +67,11 @@ class RefundResponse(BaseModel):
     refunded_amount: Annotated[Decimal, Field(alias="refundedAmount")]
 
     model_config = {"populate_by_name": True}
+
+
+class InvoiceSignedUrlResponse(BaseModel):
+    invoice_no: Annotated[str, Field(alias="invoiceNo")]
+    signed_url: Annotated[str, Field(alias="signedUrl")]
+    expires_in: Annotated[int, Field(alias="expiresIn")]
+
+    model_config = {"populate_by_name": True}

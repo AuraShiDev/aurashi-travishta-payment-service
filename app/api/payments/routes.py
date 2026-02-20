@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request, status, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.payments.schemas import (
+    InvoiceSignedUrlResponse,
     PaymentInitiateRequest,
     PaymentInitiateResponse,
     PaymentVerifyRequest,
@@ -12,6 +13,7 @@ from app.api.payments.schemas import (
     RefundResponse,
 )
 from app.api.payments.services.payment_service import (
+    generate_invoice_signed_url_service,
     initiate_payment_service,
     initiate_refund_service,
     verify_payment_service,
@@ -66,3 +68,21 @@ async def razorpay_webhook(
     session: AsyncSession = Depends(get_session),
 ):
     return await process_webhook_service(request, session)
+
+
+@payments_router.get(
+    "/invoices/{invoice_no}/signed-url",
+    response_model=InvoiceSignedUrlResponse,
+    response_model_by_alias=True,
+    status_code=status.HTTP_200_OK,
+)
+async def generate_invoice_signed_url(
+    invoice_no: str,
+    expires_in: int = 3600,
+    session: AsyncSession = Depends(get_session),
+):
+    return await generate_invoice_signed_url_service(
+        invoice_no=invoice_no,
+        session=session,
+        expires_in=expires_in,
+    )

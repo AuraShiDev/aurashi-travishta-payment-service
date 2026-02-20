@@ -8,8 +8,10 @@ from sqlmodel import select
 
 from app.api.payments.models import CreditNote, Invoice, RefundTransaction
 from app.core.config import Config
-from app.invoices.invoice_generator import render_template
-from app.invoices.lambda_pdf import generate_pdf_via_lambda
+from app.invoices.lambda_pdf import (
+    build_credit_note_lambda_payload,
+    generate_pdf_via_lambda,
+)
 
 
 def generate_credit_note_number() -> str:
@@ -52,15 +54,17 @@ async def generate_credit_note_for_refund(
     session.add(credit_note)
     await session.flush()
 
-    context = {
-        "credit_note_number": credit_note_number,
-        "invoice_number": invoice.invoice_no,
-        "refund_amount": str(refund_record.amount),
-        "date": datetime.utcnow().strftime("%d-%m-%Y"),
-    }
-    html_content = render_template("credit_note.html", context)
-    credit_note.pdf_url = await generate_pdf_via_lambda(
-        html_content, credit_note_number
+    payload = build_credit_note_lambda_payload(
+        credit_note_number=credit_note_number,
+        invoice_number=invoice.invoice_no,
+        date=datetime.utcnow().strftime("%Y-%m-%d"),
+        booking_id=invoice.booking_public_id,
+        customer_name="Customer",
+        package_name="Travel Package",
+        total_amount=str(invoice.amount),
+        refund_amount=str(refund_record.amount),
+        file_name=credit_note_number,
     )
+    credit_note.pdf_url = await generate_pdf_via_lambda(payload)
     session.add(credit_note)
     return credit_note

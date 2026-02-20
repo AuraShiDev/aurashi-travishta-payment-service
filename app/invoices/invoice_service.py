@@ -8,8 +8,10 @@ from sqlmodel import func, select
 
 from app.api.payments.models import Invoice, PaymentTransaction
 from app.core.config import Config
-from app.invoices.invoice_generator import render_template
-from app.invoices.lambda_pdf import generate_pdf_via_lambda
+from app.invoices.lambda_pdf import (
+    build_invoice_lambda_payload,
+    generate_pdf_via_lambda,
+)
 
 
 async def generate_invoice_number(session: AsyncSession) -> str:
@@ -50,15 +52,16 @@ async def generate_invoice_for_payment(
     session.add(invoice)
     await session.flush()
 
-    context = {
-        "invoice_number": invoice_number,
-        "date": datetime.utcnow().strftime("%d-%m-%Y"),
-        "booking_public_id": txn.booking_public_id,
-        "customer_name": customer_name or "Customer",
-        "package_name": package_name or "Travel Package",
-        "total_amount": str(txn.amount),
-    }
-    html_content = render_template("invoice.html", context)
-    invoice.pdf_url = await generate_pdf_via_lambda(html_content, invoice_number)
+    payload = build_invoice_lambda_payload(
+        invoice_number=invoice_number,
+        date=datetime.utcnow().strftime("%Y-%m-%d"),
+        booking_id=txn.booking_public_id,
+        customer_name=customer_name or "Customer",
+        package_name=package_name or "Travel Package",
+        total_amount=str(txn.amount),
+        file_name=invoice_number,
+    )
+    print("Generated Lambda Payload:", payload)
+    invoice.pdf_url = await generate_pdf_via_lambda(payload)
     session.add(invoice)
     return invoice
