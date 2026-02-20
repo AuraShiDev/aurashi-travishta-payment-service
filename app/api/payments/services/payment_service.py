@@ -176,7 +176,7 @@ async def initiate_refund_service(
     if request_amount <= 0 or request_amount > total_refundable:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid refund amount")
 
-    # client = razorpay.Client(auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET))
+    client = razorpay.Client(auth=(Config.RAZORPAY_KEY_ID, Config.RAZORPAY_KEY_SECRET))
     pending_amount = request_amount
     for txn, remaining in remaining_by_txn:
         if pending_amount <= 0:
@@ -187,19 +187,19 @@ async def initiate_refund_service(
         refund_for_txn = min(remaining, pending_amount).quantize(Decimal("0.01"))
         if refund_for_txn <= 0:
             continue
-        # try:
-        #     refund = client.payment.refund(
-        #         txn.gateway_payment_id, {"amount": amount_to_paise(refund_for_txn)}
-        #     )
-        # except Exception as exc:
-        #     raise HTTPException(
-        #         status_code=status.HTTP_502_BAD_GATEWAY,
-        #         detail="Failed to initiate refund with gateway",
-        #     ) from exc
+        try:
+            refund = client.payment.refund(
+                txn.gateway_payment_id, {"amount": amount_to_paise(refund_for_txn)}
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Failed to initiate refund with gateway",
+            ) from exc
 
         refund_record = RefundTransaction(
             payment_transaction_id=txn.id,
-            refund_id='rfnd_124',
+            refund_id=refund["id"],
             amount=refund_for_txn,
             status="INITIATED",
             reason=payload.reason,
